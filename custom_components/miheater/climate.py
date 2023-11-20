@@ -9,20 +9,21 @@ import asyncio
 
 from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
 from homeassistant.components.climate.const import (
-    DOMAIN, ATTR_HVAC_MODE, HVAC_MODE_HEAT, HVAC_MODE_COOL, HVAC_MODE_OFF,
+    DOMAIN, ATTR_HVAC_MODE, HVAC_MODE_HEAT, HVAC_MODE_OFF,
     SUPPORT_TARGET_TEMPERATURE)
 from homeassistant.const import (
     ATTR_TEMPERATURE, CONF_HOST, ATTR_ENTITY_ID, CONF_NAME, CONF_TOKEN,
     TEMP_CELSIUS)
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity import generate_entity_id
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.exceptions import PlatformNotReady
+
+from miio import DeviceException
 
 _LOGGER = logging.getLogger(__name__)
 
 REQUIREMENTS = ['python-miio>=0.3.1']
-SUPPORT_FLAGS = (SUPPORT_TARGET_TEMPERATURE)
+SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 DATA_KEY = 'climate.xiaomi_miio_heater'
 
 SERVICE_SET_BUZZER = 'xiaomi_heater_set_buzzer'
@@ -60,19 +61,19 @@ SERVICE_SCHEMA_SET_CHILD_LOCK = SERVICE_SCHEMA.extend({
     vol.Required(CONF_CHILD_LOCK): vol.All(vol.Coerce(str), vol.Clamp('off', 'on'))
 })
 
-
 SERVICE_TO_METHOD = {
-    SERVICE_SET_BUZZER: {'method': 'async_set_buzzer',
-                            'schema': SERVICE_SCHEMA_SET_BUZZER},
-    SERVICE_SET_BRIGHTNESS: {'method': 'async_set_brightness',
-                            'schema': SERVICE_SCHEMA_SET_BRIGHTNESS},
-    SERVICE_SET_POWEROFF_TIME: {'method': 'async_set_poweroff_time',
-                            'schema': SERVICE_SCHEMA_SET_POWEROFF_TIME},
-    SERVICE_SET_CHILD_LOCK: {'method': 'async_set_child_lock',
-                            'schema': SERVICE_SCHEMA_SET_CHILD_LOCK},
+    SERVICE_SET_BUZZER: {'method': 'set_buzzer',
+                         'schema': SERVICE_SCHEMA_SET_BUZZER},
+    SERVICE_SET_BRIGHTNESS: {'method': 'set_brightness',
+                             'schema': SERVICE_SCHEMA_SET_BRIGHTNESS},
+    SERVICE_SET_POWEROFF_TIME: {'method': 'set_power_off_time',
+                                'schema': SERVICE_SCHEMA_SET_POWEROFF_TIME},
+    SERVICE_SET_CHILD_LOCK: {'method': 'set_child_lock',
+                             'schema': SERVICE_SCHEMA_SET_CHILD_LOCK},
 }
 
-def setup_platform(hass, config, async_add_devices, discovery_info=None):
+
+def setup_platform(hass, config, async_add_devices):
     """Perform the setup for Xiaomi heaters."""
     from miio import Device, DeviceException
     if DATA_KEY not in hass.data:
@@ -97,9 +98,9 @@ def setup_platform(hass, config, async_add_devices, discovery_info=None):
     except DeviceException:
         _LOGGER.exception('Fail to setup Xiaomi heater')
         raise PlatformNotReady
-    miHeater = MiHeater(device, name, unique_id, hass)
-    hass.data[DATA_KEY][host] = miHeater
-    async_add_devices([miHeater], update_before_add=True)
+    mi_heater = MiHeater(device, name, unique_id, hass)
+    hass.data[DATA_KEY][host] = mi_heater
+    async_add_devices([mi_heater], update_before_add=True)
 
     async def async_service_handler(service):
         """Map services to methods on XiaomiAirConditioningCompanion."""
@@ -128,12 +129,13 @@ def setup_platform(hass, config, async_add_devices, discovery_info=None):
         hass.services.async_register(
             DOMAIN, service, async_service_handler, schema=schema)
 
+
 class OperationMode(enum.Enum):
     Heat = 'heat'
     Off = 'off'
 
+
 class MiHeater(ClimateEntity):
-    from miio import DeviceException
 
     """Representation of a MiHeater device."""
 
@@ -145,7 +147,7 @@ class MiHeater(ClimateEntity):
         self._target_temperature = 0
         self._current_temperature = 0
         self._power = None
-        self._poweroff_time = None
+        self._power_off_time = None
         self._buzzer = None
         self._brightness = None
         self._child_lock = None
@@ -166,10 +168,12 @@ class MiHeater(ClimateEntity):
     def supported_features(self):
         """Return the list of supported features."""
         return SUPPORT_FLAGS
+
     @property
     def temperature_unit(self):
         """Return the unit of measurement which this thermostat uses."""
         return TEMP_CELSIUS
+
     @property
     def target_temperature(self):
         """Return the temperature we try to reach."""
@@ -184,7 +188,7 @@ class MiHeater(ClimateEntity):
     def hvac_modes(self):
         """Return the list of available hvac modes."""
         return [mode.value for mode in OperationMode]
-        
+
     @property
     def hvac_mode(self):
         """Return hvac mode ie. heat, cool, fan only."""
@@ -194,9 +198,8 @@ class MiHeater(ClimateEntity):
     def target_temperature_step(self):
         """Return the supported step of target temperature."""
         return 1
-    
-    @asyncio.coroutine
-    def async_update(self):
+
+    async def async_update(self):
         """Update the state of this device."""
         try:
             data = {}
@@ -212,23 +215,23 @@ class MiHeater(ClimateEntity):
                 self._hvac_mode = 'off'
             else:
                 self._hvac_mode = "heat"
-            self._poweroff_time = None
+            self._power_off_time = None
             self._buzzer = None
             self._brightness = None
-            self._child_lock = None 
+            self._child_lock = None
             self._target_temperature = current_temperature != 16
             self._current_temperature = current_temperature != 16
             self._power = power != "off"
             self._state_attrs.update({
-                ATTR_HVAC_MODE: power if power == "off"  else "heat",
-                ATTR_TEMPERATURE:target_temperature,
+                ATTR_HVAC_MODE: power if power == "off" else "heat",
+                ATTR_TEMPERATURE: target_temperature,
                 "power": power,
                 "humidity": humidity,
                 "poweroff_time": poweroff_time,
                 "buzzer": buzzer,
                 "brightness": brightness,
                 "child_lock": child_lock,
-                "current_temperature":current_temperature
+                "current_temperature": current_temperature
             })
         except DeviceException:
             _LOGGER.exception('Fail to get_prop from Xiaomi heater')
@@ -259,59 +262,46 @@ class MiHeater(ClimateEntity):
         """List of available operation modes."""
         return [HVAC_MODE_HEAT, HVAC_MODE_OFF]
 
-    @asyncio.coroutine
-    def async_set_temperature(self, **kwargs):
+    async def set_temperature(self, **kwargs):
         """Set new target temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is None:
             return
-        self._device.send('set_target_temperature', [int(temperature)])
+        await self._device.send('set_target_temperature', [int(temperature)])
 
-    @asyncio.coroutine
-    def async_set_brightness(self, **kwargs):
+    async def set_brightness(self, **kwargs):
         """Set new led brightness."""
         brightness = kwargs.get(CONF_BRIGHTNESS)
         if brightness is None:
             return
-        self._device.send('set_brightness', [int(brightness)])
+        await self._device.send('set_brightness', [int(brightness)])
 
-    @asyncio.coroutine
-    def async_set_poweroff_time(self, **kwargs):
+    async def set_power_off_time(self, **kwargs):
         """Set new led brightness."""
         poweroff_time = kwargs.get(CONF_POWEROFF_TIME)
         if poweroff_time is None:
             return
-        self._device.send('set_poweroff_time', [int(poweroff_time)])
+        await self._device.send('set_power_off_time', [int(poweroff_time)])
 
-    @asyncio.coroutine
-    def async_set_child_lock(self, **kwargs):
+    async def set_child_lock(self, **kwargs):
         """Set new led brightness."""
         child_lock = kwargs.get(CONF_CHILD_LOCK)
         if child_lock is None:
             return
-        self._device.send('set_child_lock', [str(child_lock)])
+        await self._device.send('set_child_lock', [str(child_lock)])
 
-    @asyncio.coroutine
-    def async_set_buzzer(self, **kwargs):
+    async def set_buzzer(self, **kwargs):
         """Set new led brightness."""
         buzzer = kwargs.get(CONF_BUZZER)
         if buzzer is None:
             return
-        self._device.send('set_buzzer', [str(buzzer)])
+        await self._device.send('set_buzzer', [str(buzzer)])
 
-    @asyncio.coroutine
-    def async_set_hvac_mode(self, hvac_mode):
+    async def set_hvac_mode(self, hvac_mode):
         """Set new target hvac mode."""
         if hvac_mode == OperationMode.Heat.value:
-            result = self._device.send('set_power', ['on'])
-            # if result[0] == 'ok':
-            #     self.async_update()
-            # self.async_turn_on()
+            await self._device.send('set_power', ['on'])
         elif hvac_mode == OperationMode.Off.value:
-            result = self._device.send('set_power', ['off'])
-            # if result[0] == 'ok':
-            #     self.async_update()
-            # self.async_turn_off()
+            await self._device.send('set_power', ['off'])
         else:
             _LOGGER.error("Unrecognized operation mode: %s", hvac_mode)
-
