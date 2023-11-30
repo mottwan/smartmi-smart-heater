@@ -1,14 +1,13 @@
 {
   "domain": "miheater",
-  "name": "Smartmi Smart Heater",
-  "documentation": "https://github.com/mottwan/Smartmi-heater-smart",
+  "name": "Xiaomi smartmi Smart Heater",
+  "documentation": "https://github.com/mottwan/smartmi-heater-smart",
   "requirements": [
     "construct==2.10.68",
     "python-miio==0.5.12"
-  ],
-  "dependencies": [],
+  ],s
   "codeowners": [
-    "@fineemb"
+    "@mottwan"
   ],
   "version": "1.25"
 }
